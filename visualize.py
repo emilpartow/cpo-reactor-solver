@@ -42,10 +42,19 @@ plt.rcParams.update({
     "axes.axisbelow": True,
     "axes.edgecolor": "#444444",
     "axes.linewidth": 1.0,
-    "legend.frameon": False,
+    "legend.frameon": True,
+    "legend.framealpha": 0.9,
+    "legend.facecolor": "white",
+    "legend.edgecolor": "#cccccc",
     "legend.fontsize": 9.5,
     "lines.linewidth": 2.0,
+    "figure.constrained_layout.use": False,
 })
+
+
+def _save(fig, name):
+    fig.savefig(os.path.join(FIGS, name), bbox_inches="tight")
+    plt.close(fig)
 
 SP = ["CH4", "O2", "CO2", "CO", "H2O", "H2"]
 SP_LABEL = {"CH4": r"CH$_4$", "O2": r"O$_2$", "CO2": r"CO$_2$",
@@ -63,21 +72,28 @@ def load():
     return d
 
 
-def _shade_catalyst(ax, d, label=True):
+def _shade_catalyst(ax, d, label=True, loc="top"):
     z0, z1 = float(d["z_cat_start"]) * 1e3, float(d["z_cat_end"]) * 1e3
     ax.axvspan(z0, z1, color=CAT_FILL, alpha=0.7, lw=0, zorder=0)
-    if label:
-        ax.text(0.5 * (z0 + z1), 0.97, "catalyst", ha="center", va="top",
-                transform=ax.get_xaxis_transform(), fontsize=9,
-                color="#2e7d32", weight="bold")
+    if not label:
+        return
+    pos = {
+        "top":      (0.5 * (z0 + z1), 0.965, "center", "top"),
+        "topleft":  (z0 + 0.5, 0.965, "left", "top"),
+        "topright": (z1 - 0.5, 0.965, "right", "top"),
+        "bottom":   (0.5 * (z0 + z1), 0.04, "center", "bottom"),
+    }[loc]
+    ax.text(pos[0], pos[1], "catalyst", transform=ax.get_xaxis_transform(),
+            ha=pos[2], va=pos[3], fontsize=9, color="#2e7d32", weight="bold",
+            zorder=5)
 
 
 # ==========================================================================
 def fig_temperature(d):
     z = d["z"] * 1e3
     t = d["t"]; Tg = d["Tg"]; Ts = d["Ts"]
-    fig, ax = plt.subplots(figsize=(8.2, 5.0))
-    _shade_catalyst(ax, d)
+    fig, ax = plt.subplots(figsize=(8.6, 5.2))
+    _shade_catalyst(ax, d, loc="topright")
     # evolution (faded)
     idxs = np.linspace(0, len(t) - 1, 7).astype(int)[1:-1]
     for k in idxs:
@@ -88,9 +104,10 @@ def fig_temperature(d):
     ax.plot(z, Tg[-1], color=GAS_C, lw=2.6, label=f"gas    $T_g$  (t={t[-1]:.0f} s)")
     ax.plot(z, Ts[0], color="#888888", lw=1.3, ls="--", label="initial guess")
     zpk = float(d["peak_Ts_z"]) * 1e3
-    ax.annotate(f"hot spot\n{float(d['peak_Ts']):.0f} K",
-                xy=(zpk, float(d["peak_Ts"])), xytext=(zpk + 6, float(d["peak_Ts"]) - 30),
-                fontsize=9, color=SOL_C,
+    pk = float(d["peak_Ts"])
+    ax.annotate(f"hot spot  {pk:.0f} K",
+                xy=(zpk, pk), xytext=(zpk + 8.5, pk - 175),
+                fontsize=9.5, color=SOL_C, ha="left", va="center",
                 arrowprops=dict(arrowstyle="->", color=SOL_C, lw=1.2))
     ax.set_xlabel("axial position  z  [mm]")
     ax.set_ylabel("temperature  [K]")
@@ -98,9 +115,9 @@ def fig_temperature(d):
                  fontsize=12, weight="bold")
     ax.legend(loc="lower right")
     ax.set_xlim(z.min(), z.max())
+    ax.margins(y=0.08)
     fig.tight_layout()
-    fig.savefig(os.path.join(FIGS, "fig1_temperature_axial.png"))
-    plt.close(fig)
+    _save(fig, "fig1_temperature_axial.png")
 
 
 def fig_species(d):
@@ -114,20 +131,19 @@ def fig_species(d):
     ax.set_ylabel("mole fraction  (dry, reacting species)")
     ax.set_title("Axial bulk-gas composition at the developed state",
                  fontsize=12, weight="bold")
-    ax.legend(ncol=3, loc="upper right")
     ax.set_xlim(z.min(), z.max())
-    ax.set_ylim(0, None)
+    ax.set_ylim(0, X.max() * 1.18)          # headroom so the legend clears the curves
+    ax.legend(ncol=3, loc="upper right")
     fig.tight_layout()
-    fig.savefig(os.path.join(FIGS, "fig2_species_axial.png"))
-    plt.close(fig)
+    _save(fig, "fig2_species_axial.png")
 
 
 def fig_bulk_wall(d):
     z = d["z"] * 1e3
     X = d["X"][-1]; Xw = d["x_wall"]
     active = d["active"]
-    fig, ax = plt.subplots(figsize=(8.2, 5.0))
-    _shade_catalyst(ax, d)
+    fig, ax = plt.subplots(figsize=(8.6, 5.2))
+    _shade_catalyst(ax, d, loc="top")
     for s in ["CH4", "O2"]:
         ax.plot(z, X[:, IDX[s]], color=SP_COLOR[s], lw=2.4,
                 label=f"{SP_LABEL[s]} bulk")
@@ -138,12 +154,11 @@ def fig_bulk_wall(d):
     ax.set_ylabel("mole fraction")
     ax.set_title("Bulk vs. catalyst-surface composition (external mass transfer)",
                  fontsize=12, weight="bold")
-    ax.legend(ncol=2, loc="upper right")
     ax.set_xlim(z.min(), z.max())
-    ax.set_ylim(0, None)
+    ax.set_ylim(0, float(np.nanmax(X[:, IDX["CH4"]])) * 1.18)
+    ax.legend(ncol=2, loc="upper right")
     fig.tight_layout()
-    fig.savefig(os.path.join(FIGS, "fig3_bulk_vs_wall.png"))
-    plt.close(fig)
+    _save(fig, "fig3_bulk_vs_wall.png")
 
 
 def fig_spacetime(d):
@@ -162,8 +177,7 @@ def fig_spacetime(d):
     ax.set_title("Light-off transient: solid-temperature space-time map",
                  fontsize=12, weight="bold")
     fig.tight_layout()
-    fig.savefig(os.path.join(FIGS, "fig4_ignition_spacetime.png"))
-    plt.close(fig)
+    _save(fig, "fig4_ignition_spacetime.png")
 
 
 def fig_lightoff(d):
@@ -183,8 +197,7 @@ def fig_lightoff(d):
     ax1.set_title("Ignition / light-off dynamics", fontsize=12, weight="bold")
     ax1.legend(handles=[l1, l2, l3], loc="center right")
     fig.tight_layout()
-    fig.savefig(os.path.join(FIGS, "fig5_lightoff_curves.png"))
-    plt.close(fig)
+    _save(fig, "fig5_lightoff_curves.png")
 
 
 def _flux(W):
@@ -228,34 +241,36 @@ def fig_conv_sel(d):
                   fontsize=12, weight="bold")
     h1, l1 = ax1.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
-    ax1.legend(h1 + h2, l1 + l2, loc="center right")
+    # the inert inlet (z < catalyst) is empty -> park the legend there
+    ax1.legend(h1 + h2, l1 + l2, loc="center left", bbox_to_anchor=(0.012, 0.5))
     ax1.set_xlim(z.min(), z.max())
     fig.tight_layout()
-    fig.savefig(os.path.join(FIGS, "fig6_conversion_selectivity.png"))
-    plt.close(fig)
+    _save(fig, "fig6_conversion_selectivity.png")
 
 
 def fig_dashboard(d):
     z = d["z"] * 1e3; t = d["t"]
     Tg = d["Tg"]; Ts = d["Ts"]; X = d["X"]
-    fig, axs = plt.subplots(2, 2, figsize=(12.6, 8.4))
+    fig, axs = plt.subplots(2, 2, figsize=(13.6, 9.2))
 
     ax = axs[0, 0]
-    _shade_catalyst(ax, d)
+    _shade_catalyst(ax, d, loc="topright")
     ax.plot(z, Ts[-1], color=SOL_C, label="$T_s$ solid")
     ax.plot(z, Tg[-1], color=GAS_C, label="$T_g$ gas")
     ax.set_ylabel("temperature [K]"); ax.set_xlabel("z [mm]")
     ax.set_title("(a) Developed temperature profile", weight="bold", fontsize=11)
     ax.legend(loc="lower right"); ax.set_xlim(z.min(), z.max())
+    ax.margins(y=0.08)
 
     ax = axs[0, 1]
-    _shade_catalyst(ax, d)
+    _shade_catalyst(ax, d, loc="topleft")
     for s in SP:
         ax.plot(z, X[-1][:, IDX[s]], color=SP_COLOR[s], label=SP_LABEL[s])
     ax.set_ylabel("mole fraction"); ax.set_xlabel("z [mm]")
     ax.set_title("(b) Developed composition", weight="bold", fontsize=11)
-    ax.legend(ncol=3, fontsize=8, loc="upper right")
-    ax.set_xlim(z.min(), z.max()); ax.set_ylim(0, None)
+    ax.set_xlim(z.min(), z.max()); ax.set_ylim(0, X[-1].max() * 1.30)
+    ax.legend(ncol=3, fontsize=8, loc="upper right", columnspacing=1.0,
+              handlelength=1.4)
 
     ax = axs[1, 0]
     Zg, Tt = np.meshgrid(z, t)
@@ -275,13 +290,13 @@ def fig_dashboard(d):
     ax.set_title("(d) Ignition dynamics", weight="bold", fontsize=11)
     ha, la = ax.get_legend_handles_labels()
     hb, lb = axb.get_legend_handles_labels()
-    ax.legend(ha + hb, la + lb, loc="center right", fontsize=8)
+    ax.legend(ha + hb, la + lb, loc="center right", fontsize=8.5)
 
     fig.suptitle("1-D heterogeneous CPO reactor — solution overview",
                  fontsize=14, weight="bold")
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
-    fig.savefig(os.path.join(FIGS, "fig7_dashboard.png"))
-    plt.close(fig)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.subplots_adjust(hspace=0.28, wspace=0.22)
+    _save(fig, "fig7_dashboard.png")
 
 
 def main():
