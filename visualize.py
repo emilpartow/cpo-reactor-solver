@@ -42,6 +42,8 @@ plt.rcParams.update({
     "axes.axisbelow": True,
     "axes.edgecolor": "#444444",
     "axes.linewidth": 1.0,
+    "axes.titlepad": 10,
+    "axes.titlesize": 12,
     "legend.frameon": True,
     "legend.framealpha": 0.9,
     "legend.facecolor": "white",
@@ -123,7 +125,7 @@ def fig_temperature(d):
 def fig_species(d):
     z = d["z"] * 1e3
     X = d["X"][-1]
-    fig, ax = plt.subplots(figsize=(8.2, 5.0))
+    fig, ax = plt.subplots(figsize=(8.6, 5.2))
     _shade_catalyst(ax, d)
     for s in SP:
         ax.plot(z, X[:, IDX[s]], color=SP_COLOR[s], label=SP_LABEL[s])
@@ -163,7 +165,7 @@ def fig_bulk_wall(d):
 
 def fig_spacetime(d):
     z = d["z"] * 1e3; t = d["t"]; Ts = d["Ts"]
-    fig, ax = plt.subplots(figsize=(8.4, 5.0))
+    fig, ax = plt.subplots(figsize=(8.8, 5.4))
     Zg, Tg_ = np.meshgrid(z, t)
     pcm = ax.pcolormesh(Zg, Tg_, Ts, shading="gouraud", cmap="inferno",
                         norm=Normalize(vmin=Ts.min(), vmax=Ts.max()))
@@ -195,7 +197,8 @@ def fig_lightoff(d):
     ax2.set_ylabel("conversion  [%]")
     ax2.set_ylim(0, 105)
     ax1.set_title("Ignition / light-off dynamics", fontsize=12, weight="bold")
-    ax1.legend(handles=[l1, l2, l3], loc="center right")
+    ax1.legend(handles=[l1, l2, l3], loc="lower right",
+               bbox_to_anchor=(0.99, 0.06))
     fig.tight_layout()
     _save(fig, "fig5_lightoff_curves.png")
 
