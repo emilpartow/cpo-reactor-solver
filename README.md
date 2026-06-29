@@ -69,6 +69,8 @@ Knudsen diffusion. All parameters are taken from `Reactor_Properties.xlsx`.
 
 ### Why the previous attempts failed — and what fixes it
 
+(Full evidence-based write-up in [`DIAGNOSIS.md`](DIAGNOSIS.md).)
+
 1. **Non-deterministic right-hand side.** A warm-start cache in the inner
    washcoat solver made `rhs(t, Y)` history-dependent, which corrupts the
    implicit integrator's finite-difference Jacobian and collapses the step
