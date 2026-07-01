@@ -191,6 +191,8 @@ class Numerics:
     n_outlet: int = 30                # cells in the inert outlet
     t_end: float = 30.0               # s
     n_save: int = 240                 # stored time snapshots
+    tau_wc: float = 5.0e-4            # washcoat relaxation time [s] (regularises
+                                     # the algebraic surface balance -> stiff ODE)
 
     @property
     def n_nodes(self) -> int:

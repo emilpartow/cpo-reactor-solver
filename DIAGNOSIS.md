@@ -88,12 +88,12 @@ implicit integrator. The `ode15i` rewrite replaced it with bounded exp-log
 algebraic variables — more robust, but it is what forced the elaborate restart
 logic.
 
-> **This solver:** at these conditions the external mass-transfer Damköhler
-> number is small (`a_v·β ≈ 10³–10⁴ s⁻¹` ≫ reaction `≈ 10² s⁻¹`), so the wall
-> and bulk compositions nearly coincide. Reactions are evaluated at the bulk
-> composition (conservative, smooth, no inner nonlinear solve); the small wall
-> depletion is reconstructed afterwards only for plotting. The stiff algebraic
-> sub-problem disappears.
+> **This solver:** the surface mass fractions are kept as genuine state
+> variables (the coupling is *not* dropped) but given a small washcoat
+> relaxation time `τ_wc`, so the index-1 DAE becomes a stiff ODE that the
+> implicit BDF integrator handles directly — no inner nonlinear solve, no
+> relaxation/homotopy/rescue machinery. The algebraic film balance is recovered
+> to a relative residual ≈ 1e-6 at the developed state.
 
 ---
 
@@ -213,9 +213,11 @@ are the inhibiting species in the LHHW rate laws — not a missing-data error.
 
 1. **Pure RHS** — no hidden/persistent state, so the implicit Jacobian is
    correct and the integration is reproducible (fixes A2).
-2. **No stiff inner solve** — reactions evaluated at bulk composition with a
-   justified small-Damköhler argument; the DAE collapses to a smooth, stiff ODE
-   that `solve_ivp(BDF)` handles directly with a sparsity pattern (fixes A1/A3).
+2. **The DAE handled cleanly, coupling intact** — the surface species stay as
+   unknowns but are regularised with a small washcoat relaxation time, turning
+   the index-1 DAE into a stiff ODE that `solve_ivp(BDF)` integrates directly
+   with a sparsity pattern. No inner nonlinear solve, no rescue machinery; the
+   algebraic film balance closes to ≈ 1e-6 (fixes A1/A3).
 3. **One consistent unit system** (SI; molar→mass cp by division; SI molar
    masses; correct Thiele/Knudsen) (fixes B1–B3).
 4. **One parameter source** in `cpo/params.py`, with N₂ corrected to 28.0134 and

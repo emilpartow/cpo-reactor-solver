@@ -65,11 +65,17 @@ class CPOModel:
         self.Tg_in = cfg.feed.T_gas_in
         self.Ts_in = cfg.feed.T_solid_in
         self.n = self.grid.n
+        self.na = self.grid.act_idx.size      # number of catalytic nodes
+        self.nS = 8 * self.n                   # size of the gas+temperature block
+        self.tau_wc = cfg.num.tau_wc           # washcoat relaxation time [s]
 
     # ---- state packing -------------------------------------------------
+    #   Y = [ gas w (6) , Tg , Ts ]  per node        (size 8*n)
+    #     + [ wall w (6) ]           per active node  (size 6*na)
     def unpack(self, Y):
-        S = Y.reshape(self.n, 8)
-        return S[:, :6], S[:, 6], S[:, 7]
+        S = Y[:self.nS].reshape(self.n, 8)
+        Wwall = Y[self.nS:].reshape(self.na, 6)
+        return S[:, :6], S[:, 6], S[:, 7], Wwall
 
     def initial_state(self, ignite=True, T_peak=1100.0, width=0.004):
         """
@@ -95,126 +101,59 @@ class CPOModel:
         else:
             S[:, 6] = self.Tg_in
             S[:, 7] = self.Ts_in
-        return S.reshape(-1)
+        # wall composition initialised to the local bulk gas composition
+        Wwall0 = S[self.grid.act_idx, :6].copy()
+        return np.concatenate([S.reshape(-1), Wwall0.reshape(-1)])
 
-    # ---- catalytic reaction source (effective rates at the wall) -------
-    def _reaction(self, w6_a, Ts_a):
+    # ---- catalytic reaction evaluated at the (state) wall composition --
+    def _reaction_wall(self, w_wall, Ts_a):
         """
-        Effective net molar production Rnet (n_act,6) [mol/(kg_cat s)] and heat
-        release Q (n_act,) [W/kg_cat] on the active nodes, evaluated at the gas
-        composition with internal-diffusion effectiveness factors.
-
-        Justification for using the bulk composition: at these conditions the
-        external mass-transfer Damkoehler number is small (a_v*beta ~ 1e3-5e3 /s
-        >> volumetric reaction rate ~1e2 /s), so the wall and bulk compositions
-        nearly coincide.  The (small) wall depletion is reconstructed separately
-        by `estimate_wall` for diagnostics.
+        Effective net production Rnet (na,6) [mol/(kg_cat s)] and heat release
+        Q (na,) [W/kg_cat] evaluated at the catalyst-surface composition w_wall,
+        including internal-diffusion effectiveness factors.  Pure function.
         """
         cat = self.cfg.cat
-        na = w6_a.shape[0]
+        na = w_wall.shape[0]
         p_P = self.P_pa[self.grid.act_idx]
         kreac = np.column_stack([ph.arrhenius(P.K_873[j], P.E_A[j], Ts_a) for j in range(6)])
         eta = ph.effectiveness(Ts_a, kreac, cat)
         ev = np.ones((na, 5))
         ev[:, 0] = eta["TOX"]; ev[:, 1] = eta["SR"]; ev[:, 3] = eta["HOX"]; ev[:, 4] = eta["COOX"]
-        _, _, _, p_atm, _ = ph.composition(w6_a, Ts_a, p_P)
-        r_eff = ph.reaction_rates(p_atm, Ts_a) * ev          # (na,5)
-        Rnet = r_eff @ RM                                    # (na,6)
-        Q = np.sum(-ph.dH_reactions(Ts_a) * r_eff, axis=1)   # W/kg_cat
+        _, _, _, p_atm, _ = ph.composition(w_wall, Ts_a, p_P)
+        r = ph.reaction_rates(p_atm, Ts_a) * ev                  # (na,5)
+        Rnet = r @ RM                                            # (na,6)
+        Q = np.sum(-ph.dH_reactions(Ts_a) * r, axis=1)          # W/kg_cat
         return Rnet, Q
-
-    def estimate_wall(self, w6_a, Ts_a, rho_g_a, beta_a):
-        """One linearised film-transfer correction giving wall mass fractions
-        for diagnostics (bulk - reaction/transfer).  Not used by the integrator."""
-        cat = self.cfg.cat
-        beta_safe = np.where(beta_a > 1e-12, beta_a, 1e-12)
-        cfac = (MW[None, :N_SP] * cat.rho_cat_eff) / (cat.a_v * rho_g_a[:, None] * beta_safe)
-        Rnet, _ = self._reaction(w6_a, Ts_a)
-        return np.clip(w6_a + cfac * Rnet, 0.0, None)
-
-    # ---- quasi-steady washcoat (surface) species balance (diagnostic) --
-    def _solve_wall(self, w_gas_a, Ts_a, rho_g_a, beta_a, tol=1e-12, max_iter=12):
-        """
-        Solve the quasi-steady washcoat balance
-            F(w) = w - w_gas - cfac * Rnet(w, Ts) = 0,
-            cfac = MW * rho_cat_eff / (a_v * rho_g * beta),
-        on the active nodes by a vectorised Newton iteration (6x6 block per
-        node, finite-difference Jacobian).  Started from w_gas so that rhs(t,Y)
-        is a *pure* function - essential for the implicit integrator's Jacobian.
-        Shapes: (n_act, 6).
-        """
-        cat = self.cfg.cat
-        a_v, rce = cat.a_v, cat.rho_cat_eff
-        na = w_gas_a.shape[0]
-        p_atm_P = self.P_pa[self.grid.act_idx]
-        beta_safe = np.where(beta_a > 1e-12, beta_a, 1e-12)
-        cfac = (MW[None, :N_SP] * rce) / (a_v * rho_g_a[:, None] * beta_safe)
-
-        # effectiveness factors (depend on Ts only -> computed once)
-        kreac = np.column_stack([ph.arrhenius(P.K_873[j], P.E_A[j], Ts_a) for j in range(6)])
-        eta = ph.effectiveness(Ts_a, kreac, cat)
-        eta_vec = np.ones((na, 5))
-        eta_vec[:, 0] = eta["TOX"]; eta_vec[:, 1] = eta["SR"]
-        eta_vec[:, 3] = eta["HOX"]; eta_vec[:, 4] = eta["COOX"]
-
-        def Rnet(w_wall):
-            _, _, _, p_atm, _ = ph.composition(w_wall, Ts_a, p_atm_P)
-            return (ph.reaction_rates(p_atm, Ts_a) * eta_vec) @ RM    # (na,6)
-
-        def resid(w_wall):
-            return w_wall - w_gas_a - cfac * Rnet(w_wall)
-
-        w = np.clip(w_gas_a.copy(), 1e-14, None)
-        F = resid(w)
-        I6 = np.eye(6)[None]
-        for _ in range(max_iter):
-            if np.max(np.abs(F)) < tol:
-                break
-            # finite-difference 6x6 Jacobian (perturb each species)
-            J = np.empty((na, 6, 6))
-            for k in range(6):
-                h = 1e-9 + 1e-7 * w[:, k]
-                wp = w.copy(); wp[:, k] += h
-                J[:, :, k] = (resid(wp) - F) / h[:, None]
-            step = np.linalg.solve(J, F[:, :, None])[:, :, 0]
-            # damped, positivity-preserving update
-            w_new = np.clip(w - step, 1e-14, None)
-            F_new = resid(w_new)
-            grew = np.max(np.abs(F_new), axis=1) > np.max(np.abs(F), axis=1)
-            if np.any(grew):                      # half-step where residual grew
-                w_half = np.clip(w - 0.5 * step, 1e-14, None)
-                w_new[grew] = w_half[grew]
-                F_new = resid(w_new)
-            w, F = w_new, F_new
-        return w, eta_vec
 
     # ---- full right-hand side -----------------------------------------
     def rhs(self, t, Y):
         n, eps, G = self.n, self.eps, self.G
         grid = self.grid
         cat = self.cfg.cat
-        w6, Tg, Ts = self.unpack(Y)
+        w6, Tg, Ts, Wwall = self.unpack(Y)
         w6 = np.clip(w6, 0.0, None)
         Tg = np.clip(Tg, 250.0, 4000.0)
         Ts = np.clip(Ts, 250.0, 4000.0)
+        Wwall = np.clip(Wwall, 0.0, None)
 
         gp = ph.gas_properties(w6, Tg, self.P_pa)
         rho_g, cp_mass = gp['rho'], gp['cp_mass']
         alpha, beta, Re, Pr = ph.transfer_coefficients(
             gp, self.cfg.geo, G, eps, grid.z_local, grid.active)
 
-        # --- catalytic reaction on active nodes (bulk composition) ---
+        # --- reaction at the catalyst-surface composition (state variable) ---
         ai = grid.act_idx
-        Rnet, Q = self._reaction(w6[ai], Ts[ai])                    # (na,6),(na,)
+        Rnet_w, Q = self._reaction_wall(Wwall, Ts[ai])
+        beta_a = np.maximum(beta[ai], 1e-12)
 
         dS = np.zeros((n, 8))
 
-        # ---------- gas species (upwind convection + reaction source) ----------
+        # ---------- gas species (upwind convection + external mass transfer) ----------
         w_up = np.vstack([self.w_in[None, :], w6[:-1, :]])          # upstream values
         conv = -(G / (rho_g[:, None] * eps)) * (w6 - w_up) / grid.dz_w[:, None]
         dS[:, :6] = conv
-        # heterogeneous reaction adds/removes species from the gas
-        dS[ai, :6] += (MW[None, :N_SP] * cat.rho_cat_eff * Rnet) / (eps * rho_g[ai, None])
+        # gas loses/gains species by film transfer to the catalyst surface
+        dS[ai, :6] += -(cat.a_v / eps) * beta_a * (w6[ai] - Wwall)
 
         # ---------- gas energy ----------
         Tg_up = np.concatenate([[self.Tg_in], Tg[:-1]])
@@ -236,26 +175,47 @@ class CPOModel:
         dTs[ai] += cat.rho_cat_eff * Q / Cs
         dS[:, 7] = dTs
 
-        return dS.reshape(-1)
+        # ---------- washcoat (surface) species: fast relaxation to quasi-steady ----------
+        #   tau_wc * dWwall/dt = (w_gas - Wwall) + cfac * Rnet ,
+        #   cfac = MW * rho_cat_eff / (a_v * rho_g * beta)
+        # As tau_wc -> 0 this enforces the algebraic film balance
+        #   a_v*rho_g*beta*(w_gas - Wwall) + MW*rho_cat_eff*Rnet = 0.
+        cfac = (MW[None, :N_SP] * cat.rho_cat_eff) / (cat.a_v * rho_g[ai, None] * beta_a)
+        dWwall = ((w6[ai] - Wwall) + cfac * Rnet_w) / self.tau_wc
+
+        return np.concatenate([dS.reshape(-1), dWwall.reshape(-1)])
 
     # ---- Jacobian sparsity pattern ------------------------------------
     def jac_sparsity(self):
-        n = self.n
-        S = sparse.lil_matrix((8 * n, 8 * n), dtype=bool)
-        def idx(j, v):
+        n, na, nS = self.n, self.na, self.nS
+        act = self.grid.act_idx
+        pos = {int(node): a for a, node in enumerate(act)}
+        N = nS + 6 * na
+        S = sparse.lil_matrix((N, N), dtype=bool)
+        def g(j, v):
             return j * 8 + v
+        def wv(a, s):
+            return nS + a * 6 + s
         for j in range(n):
             for v in range(8):
-                # intra-node coupling (reaction, transfer, properties)
-                for vv in range(8):
-                    S[idx(j, v), idx(j, vv)] = True
-                # upwind convection -> depends on j-1
-                if j > 0:
+                for vv in range(8):                      # intra-node
+                    S[g(j, v), g(j, vv)] = True
+                if j > 0:                                # upwind convection
                     for vv in range(8):
-                        S[idx(j, v), idx(j-1, vv)] = True
-                # conduction (Ts) -> depends on j-1, j+1
-                if j < n - 1:
-                    S[idx(j, 7), idx(j+1, 7)] = True
+                        S[g(j, v), g(j-1, vv)] = True
+            if j < n - 1:                                # conduction east neighbour
+                S[g(j, 7), g(j+1, 7)] = True
+            if j in pos:                                 # gas/solid <- wall of this node
+                a = pos[j]
+                for v in list(range(6)) + [7]:
+                    for s in range(6):
+                        S[g(j, v), wv(a, s)] = True
+        for a, node in enumerate(act):                   # wall equations
+            for s in range(6):
+                for vv in range(8):                      # <- gas/temp of the node
+                    S[wv(a, s), g(int(node), vv)] = True
+                for ss in range(6):                      # <- own wall block
+                    S[wv(a, s), wv(a, ss)] = True
         return sparse.csr_matrix(S)
 
 
@@ -269,10 +229,10 @@ def run(cfg: P.Config | None = None, ignite=True, t_end=None, verbose=True):
     tend = t_end if t_end is not None else cfg.num.t_end
     t_eval = np.linspace(0.0, tend, cfg.num.n_save)
 
-    atol = np.zeros((model.n, 8))
-    atol[:, :6] = 1e-9
-    atol[:, 6:] = 1e-3
-    atol = atol.reshape(-1)
+    atol_S = np.zeros((model.n, 8))
+    atol_S[:, :6] = 1e-9
+    atol_S[:, 6:] = 1e-3
+    atol = np.concatenate([atol_S.reshape(-1), np.full(6 * model.na, 1e-9)])
 
     if verbose:
         print(f"nodes={model.n}  active={model.grid.act_idx.size}  "
@@ -298,7 +258,8 @@ def steady_state(model: CPOModel, Y_guess, tol=1e-6, max_iter=60, verbose=True):
     from scipy.sparse.linalg import splu
     n = model.n
     Tsc = 1000.0
-    scale = np.ones((n, 8)); scale[:, 6:] = Tsc; scale = scale.reshape(-1)
+    scaleS = np.ones((n, 8)); scaleS[:, 6:] = Tsc
+    scale = np.concatenate([scaleS.reshape(-1), np.ones(6 * model.na)])
     pattern = model.jac_sparsity().astype(float)
 
     def res(Ys):
@@ -337,12 +298,14 @@ def postprocess(model: CPOModel, sol):
     n = model.n
     nt = sol.t.size
     W = np.empty((nt, n, 6)); Tg = np.empty((nt, n)); Ts = np.empty((nt, n))
+    Wwall = np.empty((nt, model.na, 6))
     for it in range(nt):
-        S = sol.y[:, it].reshape(n, 8)
+        S = sol.y[:model.nS, it].reshape(n, 8)
         W[it] = S[:, :6]; Tg[it] = S[:, 6]; Ts[it] = S[:, 7]
+        Wwall[it] = sol.y[model.nS:, it].reshape(model.na, 6)
     # convert bulk mass fractions to dry mole fractions for reporting
     out = dict(t=sol.t, z=model.grid.z, active=model.grid.active,
-               W=W, Tg=Tg, Ts=Ts)
+               W=W, Tg=Tg, Ts=Ts, Wwall=Wwall)
     # mole fractions over time
     X = np.empty_like(W)
     for it in range(nt):

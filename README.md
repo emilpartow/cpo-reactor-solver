@@ -25,15 +25,28 @@ and the solid/catalyst temperature `T_s`.
 **Gas phase (bulk).** Advection + interphase exchange:
 
 ```
-∂ω_i/∂t = −(G/ρ_g ε)·∂ω_i/∂z + (1/ε ρ_g)·MW_i·ρ_cat·Σ_j ν_ij r_j      (i = 1..6)
+∂ω_i/∂t = −(G/ρ_g ε)·∂ω_i/∂z − (a_v/ε)·β_i·(ω_i − ω_i^s)          (i = 1..6)
 ∂T_g/∂t = −(G/ρ_g ε)·∂T_g/∂z − (a_v/ε)·(h/ρ_g ĉ_g)·(T_g − T_s)
 ```
+
+**Catalyst surface (washcoat).** External gas→surface mass transfer balanced by
+reaction — the algebraic constraint of the coupled two-phase (ODE/DAE) system,
+here regularised by a small washcoat relaxation time `τ_wc` so it is integrated
+together with the other states (see §2):
+
+```
+τ_wc·∂ω_i^s/∂t = (ω_i − ω_i^s) + (MW_i·ρ_cat)/(a_v·ρ_g·β_i)·Σ_j ν_ij r_j(ω^s, T_s)
+       τ_wc → 0  ⇒  a_v·ρ_g·β_i·(ω_i − ω_i^s) + MW_i·ρ_cat·Σ_j ν_ij r_j = 0
+```
+
+Reaction rates `r_j` are evaluated at the **surface** composition `ω^s`, not the
+bulk — this is the gas↔solid coupling.
 
 **Solid phase (catalyst).** Interphase heat + axial conduction + reaction heat:
 
 ```
 ∂T_s/∂t = a_v·h·(T_g−T_s)/(ρ_s ĉ_s) + k_ax,eff·∂²T_s/∂z²/(ρ_s ĉ_s)
-                                     + ρ_cat·Σ_j (−ΔH_j) r_j /(ρ_s ĉ_s)
+                                     + ρ_cat·Σ_j (−ΔH_j) r_j(ω^s,T_s)/(ρ_s ĉ_s)
 k_ax,eff = (1−ξ)·k_s + (16/3)(1.12)·σ·(d_h/2)·T_s³     (conduction + radiation)
 ```
 
@@ -59,13 +72,21 @@ Knudsen diffusion. All parameters are taken from `Reactor_Properties.xlsx`.
 
 ## 2. Numerical method
 
+* **State vector.** Per node: 6 gas mass fractions, `T_g`, `T_s` (8·n values);
+  plus 6 **surface** mass fractions on every catalytic node (6·n_cat). The
+  surface concentrations are genuine unknowns — the gas↔solid coupling is kept.
 * **Method of lines.** First-order **upwind** for the advective `∂/∂z`,
   3-point non-uniform central differences for the conductive `∂²/∂z²`, on a
   graded mesh refined over the catalyst.
+* **The DAE, regularised.** The quasi-steady washcoat balance is an algebraic
+  constraint (index-1 DAE). Instead of solving a fragile per-node nonlinear
+  system inside every RHS call, the surface species are given a small physical
+  relaxation time `τ_wc` (`cpo/params.py`) and integrated as fast, stiff ODEs.
+  This recovers the algebraic balance in the `τ_wc → 0` limit — verified: the
+  film balance closes to a **relative residual ≈ 1e-6** at the developed state.
 * **Time integration.** SciPy `solve_ivp` with the stiff **BDF** method and a
-  supplied **Jacobian sparsity pattern**; per-variable absolute tolerances.
-* **Steady-state polish.** Optional damped sparse-Newton on `rhs = 0`
-  (`model.steady_state`).
+  supplied **Jacobian sparsity pattern** (banded gas/solid + surface blocks);
+  per-variable absolute tolerances. Full run ≈ 10 s.
 
 ### Why the previous attempts failed — and what fixes it
 
@@ -75,11 +96,13 @@ Knudsen diffusion. All parameters are taken from `Reactor_Properties.xlsx`.
    washcoat solver made `rhs(t, Y)` history-dependent, which corrupts the
    implicit integrator's finite-difference Jacobian and collapses the step
    size. The RHS here is a **pure function**.
-2. **Stiff algebraic wall balance.** The gas↔surface film balance is a stiff
-   nonlinear algebraic system. Here the external-transfer Damköhler number is
-   small (`a_v·β ≈ 10³–10⁴ s⁻¹ ≫` reaction `≈ 10² s⁻¹`), so reactions are
-   evaluated at the bulk composition and the (small) surface depletion is
-   reconstructed only for plotting (`fig3`). This removes the stiff inner solve.
+2. **A fragile inner nonlinear solve for the surface balance.** Solving the
+   coupled 6-species film/reaction balance algebraically inside every RHS call
+   is stiff and ill-conditioned at the hot inlet nodes (it diverges/oscillates —
+   which is exactly what the original code fought with relaxation, exp-log
+   transforms and a 4 000-line rescue wrapper). Carrying the surface species as
+   state variables with a small `τ_wc` moves that stiffness into the implicit
+   BDF integrator, where it belongs — no inner solve at all.
 3. **Start-up transient.** A smooth ignited initial profile with `T_g = T_s`
    pre-equilibrates the sub-millisecond gas/solid thermal layer; the
    developing-flow transfer correlations are bounded to remove the
@@ -91,10 +114,10 @@ Knudsen diffusion. All parameters are taken from `Reactor_Properties.xlsx`.
 
 | quantity | value |
 |---|---|
-| peak solid temperature | ≈ 1706 K, at the catalyst inlet (z ≈ 16 mm) |
+| peak solid temperature | ≈ 1692 K, at the catalyst inlet (z ≈ 18 mm) |
 | O₂ conversion | 100 % |
-| CH₄ conversion | ≈ 51 % |
-| outlet H₂/CO | ≈ 2.6 |
+| CH₄ conversion | ≈ 49 % |
+| outlet H₂/CO | ≈ 2.0 (ideal CPO syngas ratio) |
 
 The solution reproduces the canonical CPO signature: a **sharp oxidation
 hot-spot at the catalyst inlet** (O₂ fully consumed, CO₂/H₂O formed),

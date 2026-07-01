@@ -43,7 +43,7 @@ def main(t_end=200.0, n_inlet=16, n_cat=64, n_outlet=16, n_save=80):
     alpha, beta, Re, Pr = ph.transfer_coefficients(
         gp, cfg.geo, model.G, model.eps, model.grid.z_local, model.grid.active)
     ai = model.grid.act_idx
-    w_wall = model.estimate_wall(W_dev[ai], Ts_dev[ai], gp["rho"][ai], beta[ai])
+    w_wall = out["Wwall"][-1]                       # surface composition (state variable)
     x_wall_full = np.full_like(W_dev, np.nan)
     xw, *_ = ph.composition(w_wall, Ts_dev[ai], model.P_pa[ai])
     x_wall_full[ai] = xw[:, :6]
