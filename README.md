@@ -130,10 +130,15 @@ Knudsen diffusion. All parameters are taken from `Reactor_Properties.xlsx`.
 
 | quantity | value |
 |---|---|
-| peak solid temperature | ≈ 1692 K, at the catalyst inlet (z ≈ 18 mm) |
+| peak solid temperature | ≈ 1828 K, at the catalyst inlet (z ≈ 17 mm) |
 | O₂ conversion | 100 % |
-| CH₄ conversion | ≈ 49 % |
-| outlet H₂/CO | ≈ 2.0 (ideal CPO syngas ratio) |
+| CH₄ conversion | ≈ 52 % |
+| outlet H₂/CO | ≈ 1.9 (≈ ideal CPO syngas ratio) |
+
+Constants follow the reference model (`RBFunction.m`): pseudo-transient
+`AlgPseudoTransientTau` → `τ_wc`, and `UseCatalystDensityInHeatSource = true`
+(solid interphase/reaction sources carry the `(1−ε)` solid fraction with the
+`ρ_cat/ρ_s` heat-source scaling; `ρ_s = 3800 kg/m³` = α‑Al₂O₃).
 
 The solution reproduces the canonical CPO signature: a **sharp oxidation
 hot-spot at the catalyst inlet** (O₂ fully consumed, CO₂/H₂O formed),

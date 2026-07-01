@@ -44,7 +44,7 @@ def terms(model, W, Tg, Ts, Wwall):
 
 def main():
     print("running developed-state case ...", flush=True)
-    model, sol, out = V.run_case(tau_wc=5e-4, t_end=150.0, n=(16, 60, 16))
+    model, sol, out = V.run_case(tau_wc=5e-4, t_end=90.0, n=(9, 36, 9))
     W, Tg, Ts, Ww = out['W'], out['Tg'], out['Ts'], out['Wwall']
     geo = {"z_cat_start": model.cfg.geo.z_cat_start, "z_cat_end": model.cfg.geo.z_cat_end}
     za = model.grid.z[model.grid.act_idx] * 1e3
@@ -59,7 +59,7 @@ def main():
     taus = np.array([2e-3, 5e-4, 1e-4, 2e-5])
     rr, pk, cv = [], [], []
     for tau in taus:
-        m2, s2, o2 = V.run_case(tau_wc=tau, t_end=90.0, n=(10, 40, 10))
+        m2, s2, o2 = V.run_case(tau_wc=tau, t_end=45.0, n=(6, 22, 6))
         r, *_ = V.constraint_residual(m2, o2['W'][-1], o2['Tg'][-1], o2['Ts'][-1], o2['Wwall'][-1])
         rr.append(r); pk.append(o2['Ts'][-1].max()); cv.append(o2['conv_CH4'][-1]*100)
     rr, pk, cv = map(np.array, (rr, pk, cv))
@@ -115,7 +115,7 @@ def main():
     ax.set_xlabel("time  t  [s]"); ax.set_ylabel("max constraint residual")
     ax.set_title("(d) Constraint residual during the transient",
                  weight="bold", fontsize=11)
-    ax.set_ylim(1e-9, 1e-2)
+    ax.set_ylim(1e-11, 1e-2)
     ax.text(0.5, 0.9, "initial guess off-manifold,\nthen held at $\\sim10^{-7}$",
             transform=ax.transAxes, ha="center", fontsize=9, color="#555555")
 

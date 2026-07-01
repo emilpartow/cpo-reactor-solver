@@ -170,9 +170,15 @@ class CPOModel:
         Te = np.concatenate([Ts[1:], [Ts[-2]]])                    # east neighbour (outlet Neumann: reflect)
         hw, he = grid.dz_w, grid.dz_e
         d2T = 2.0 * ((Te - Ts) / he - (Ts - Tw) / hw) / (he + hw)
-        Cs = cat.rho_bed * cat.cp_s                                 # volumetric heat capacity
-        dTs = cat.a_v * alpha * (Tg - Ts) / Cs + k_ax * d2T / Cs
-        dTs[ai] += cat.rho_cat_eff * Q / Cs
+        # Reference-model solid energy balance (odefun_ode15i.m):
+        #   rho_s (=rho_bed) is the intrinsic solid density (alpha-Al2O3);
+        #   interphase transfer and reaction carry the (1-eps) solid fraction,
+        #   the reaction heat is scaled by Rho_cat/Rho_s.
+        Cs = cat.rho_bed * cat.cp_s
+        one_meps = 1.0 - eps
+        dTs = cat.a_v * alpha * (Tg - Ts) / (Cs * one_meps) + k_ax * d2T / Cs
+        heat_fac = (cat.rho_cat / cat.rho_bed) if cat.use_cat_density_in_heat_source else 1.0
+        dTs[ai] += heat_fac * cat.xi / (cat.cp_s * one_meps) * Q
         dS[:, 7] = dTs
 
         # ---------- washcoat (surface) species: fast relaxation to quasi-steady ----------

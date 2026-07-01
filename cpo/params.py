@@ -124,9 +124,13 @@ class Catalyst:
     d_micro: float = 50.0e-9          # micro pore radius [m]
     eps_macro: float = 0.05
     eps_micro: float = 0.5
-    rho_bed: float = 3800.0           # solid/bed density [kg/m^3]
+    rho_bed: float = 3800.0           # solid (Rho_s) density [kg/m^3] (alpha-Al2O3)
     rho_cat: float = 1500.0           # catalyst (washcoat) density [kg/m^3]
     emissivity: float = 0.8
+    # reference-model heat-source scaling (RBFunction.m: UseCatalystDensityInHeatSource=true):
+    # solid interphase-transfer and reaction sources carry the (1-eps) solid
+    # volume fraction, and the reaction heat is scaled by Rho_cat/Rho_s.
+    use_cat_density_in_heat_source: bool = True
 
     @property
     def rho_cat_eff(self) -> float:
@@ -191,8 +195,10 @@ class Numerics:
     n_outlet: int = 30                # cells in the inert outlet
     t_end: float = 30.0               # s
     n_save: int = 240                 # stored time snapshots
-    tau_wc: float = 5.0e-4            # washcoat relaxation time [s] (regularises
-                                     # the algebraic surface balance -> stiff ODE)
+    tau_wc: float = 1.0e-4            # washcoat pseudo-transient relaxation time [s]
+                                     # (analog of the reference AlgPseudoTransientTau;
+                                     #  regularises the algebraic surface balance ->
+                                     #  stiff ODE; physics is tau_wc-independent)
 
     @property
     def n_nodes(self) -> int:
