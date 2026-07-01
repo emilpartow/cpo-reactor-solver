@@ -170,13 +170,17 @@ class CPOModel:
         Te = np.concatenate([Ts[1:], [Ts[-2]]])                    # east neighbour (outlet Neumann: reflect)
         hw, he = grid.dz_w, grid.dz_e
         d2T = 2.0 * ((Te - Ts) / he - (Ts - Tw) / hw) / (he + hw)
-        # Reference-model solid energy balance (odefun_ode15i.m):
-        #   rho_s (=rho_bed) is the intrinsic solid density (alpha-Al2O3);
-        #   interphase transfer and reaction carry the (1-eps) solid fraction,
-        #   the reaction heat is scaled by Rho_cat/Rho_s.
+        # Solid energy balance.  rho_s (=rho_bed) is the intrinsic solid density
+        # (alpha-Al2O3); the solid occupies the (1-eps) volume fraction, so the
+        # solid volumetric heat capacity is rho_s*(1-eps)*cp_s.  ALL three solid
+        # terms (interphase transfer, axial conduction, reaction heat) carry the
+        # same (1-eps) -> energy-consistent (this corrects the reference code,
+        # whose conduction term omitted (1-eps)).  Reaction heat scaled by
+        # Rho_cat/Rho_s when use_cat_density_in_heat_source.
         Cs = cat.rho_bed * cat.cp_s
         one_meps = 1.0 - eps
-        dTs = cat.a_v * alpha * (Tg - Ts) / (Cs * one_meps) + k_ax * d2T / Cs
+        Cs_solid = Cs * one_meps
+        dTs = cat.a_v * alpha * (Tg - Ts) / Cs_solid + k_ax * d2T / Cs_solid
         heat_fac = (cat.rho_cat / cat.rho_bed) if cat.use_cat_density_in_heat_source else 1.0
         dTs[ai] += heat_fac * cat.xi / (cat.cp_s * one_meps) * Q
         dS[:, 7] = dTs
