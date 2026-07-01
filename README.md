@@ -110,6 +110,22 @@ Knudsen diffusion. All parameters are taken from `Reactor_Properties.xlsx`.
 
 ---
 
+### Verification that the DAE is really solved (`python verify.py`)
+
+- **Algebraic constraint.** The washcoat balance
+  `a_v ρ_g β_i (ω_i−ω_i^s) + MW_i ρ_cat Σ ν_ij r_j = 0` holds to a dimensionless
+  residual **≈ 1e-7** at every catalytic node and time; an *independent*
+  per-node root solve reproduces the integrator's surface state to **1.6e-5**.
+- **DAE limit.** As `τ_wc → 0` the constraint residual falls **linearly**
+  (3.2e-6 → 3.2e-8 for τ_wc 2e-3 → 2e-5) while peak T, CH₄ conversion and H₂/CO
+  stay fixed — the pseudo-transient regularisation converges to the true DAE and
+  the physics is already τ_wc-independent.
+- **Differential equations.** C/H/O element balances close to ≈ 1e-6; the result
+  is tolerance-independent (rtol 1e-5 vs 1e-7 give identical peak T and
+  conversion) and grid-converged.
+
+---
+
 ## 3. Results (developed state, default case)
 
 | quantity | value |
@@ -135,6 +151,7 @@ Figures (`figures/`):
 | `fig5_lightoff_curves.png` | transient hot-spot temperature and conversions |
 | `fig6_conversion_selectivity.png` | axial conversion, selectivity, H₂/CO ratio |
 | `fig7_dashboard.png` | combined four-panel overview |
+| `fig8_constraint_verification.png` | proof the algebraic surface constraint is satisfied (term balance, residual vs z and t, τ_wc→0) — from `verify_figures.py` |
 
 ---
 
