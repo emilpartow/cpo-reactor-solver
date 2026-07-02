@@ -118,7 +118,11 @@ class CPOModel:
         kreac = np.column_stack([ph.arrhenius(P.K_873[j], P.E_A[j], Ts_a) for j in range(6)])
         eta = ph.effectiveness(Ts_a, kreac, cat)
         ev = np.ones((na, 5))
-        ev[:, 0] = eta["TOX"]; ev[:, 1] = eta["SR"]; ev[:, 3] = eta["HOX"]; ev[:, 4] = eta["COOX"]
+        # Model Description: "Oxygen diffusional resistance magnitudes higher than
+        # other species => only oxygen-educt reactions with ThieleMod".  So the
+        # internal-diffusion effectiveness factor is applied only to the O2-
+        # consuming reactions (TOX, HOX, COOX); SR and WGS keep eta = 1.
+        ev[:, 0] = eta["TOX"]; ev[:, 3] = eta["HOX"]; ev[:, 4] = eta["COOX"]
         _, _, _, p_atm, _ = ph.composition(w_wall, Ts_a, p_P)
         r = ph.reaction_rates(p_atm, Ts_a) * ev                  # (na,5)
         Rnet = r @ RM                                            # (na,6)

@@ -132,8 +132,12 @@ Knudsen diffusion. All parameters are taken from `Reactor_Properties.xlsx`.
 |---|---|
 | peak solid temperature | ≈ 1701 K, at the catalyst inlet (z ≈ 17 mm) |
 | O₂ conversion | 100 % |
-| CH₄ conversion | ≈ 50 % |
-| outlet H₂/CO | ≈ 2.0 (ideal CPO syngas ratio) |
+| CH₄ conversion | ≈ 51 % |
+| outlet H₂/CO | ≈ 2.3 |
+
+Small parameter/unit corrections and documentation-faithful choices are listed
+in [`MODEL_TWEAKS.md`](MODEL_TWEAKS.md) (nothing architectural; kinetics/feed
+unchanged).
 
 Constants follow the reference model (`RBFunction.m`): pseudo-transient
 `AlgPseudoTransientTau` → `τ_wc`, and `UseCatalystDensityInHeatSource = true`

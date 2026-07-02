@@ -119,7 +119,10 @@ class Catalyst:
     a_v: float = 2800.0               # specific external surface area [1/m]
     eps_bed: float = 0.8              # bed void fraction [-]
     cp_s: float = 865.0               # solid heat capacity [J/kg/K]
-    L_wc: float = 1.0e-6              # washcoat (diffusion) thickness [m]
+    L_wc: float = 1.0e-5              # washcoat (diffusion) thickness [m]
+    #   = 10 um, the midpoint of the 7-15 um range stated in the Model
+    #   Description.  (The spreadsheet's 1 um is inconsistent with that doc;
+    #   the result is in any case insensitive: peak T +/-5 K over 1-15 um.)
     d_macro: float = 200.0e-9         # macro pore radius [m]
     d_micro: float = 50.0e-9          # micro pore radius [m]
     eps_macro: float = 0.05
